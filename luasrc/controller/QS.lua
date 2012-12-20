@@ -58,18 +58,49 @@ function log(msg)
 end
 --REMOVE ALL OF THE ABOVE BEFORE DEPLOYMENT OR FACE MY WRATH
 
+-- download_file
+-- type: the type of download to do (error, config).
+-- id: the id of the download (a number).
+-- download: boolean to indicate whether
+-- to download or display the file.
 function download_file()
-local result = luci.http.formvalue
-		 if  result("error") then
-		 	 file = result("error")
-		elseif result("config") then
-		 	 file = result("config")
-		elseif result("download") then
-			 --actually download the file here on button action!
+	local result = luci.http.formvalue
+	local filetype = result("type")
+	local id = result("id")
+	local contents = ""
+	if result("download") and result("filename") then
+		local fp = io.open(result("filename"), "r")
+		if (fp) then
+			log("Opened the file!")
+			luci.http.prepare_content("application/force-download")
+			luci.http.header("Content-Disposition", "attachment; filename=" .. result("filename"))
+			e, es = luci.ltn12.pump.all(luci.ltn12.source.file(fp), luci.http.write)
+			log("es: " .. es)
+			fp:close()
 		end
-		-- Could you name the file object contents? Then I can just pipe it through my render. :)
-		
-	luci.template.render("QS/QS_downloader_main", {contents=contents})
+	elseif id and filetype then
+		local uci = luci.model.uci.cursor()
+		local filename
+		if filetype == "error" then
+			filename = uci:get('quickstart', 'errors', id)
+		elseif filetype == "config" then
+			filename = uci:get('quickstart', 'configs', id)
+		end
+		if filename then
+			local fp = io.open(filename, "r")
+			if fp then
+				local string = fp:read("*a")
+				while string ~= "" do
+					contents = contents .. string
+					string = fp:read("*a")
+				end
+			fp:close()
+			end
+		end
+		luci.template.render("QS/QS_downloader_main", {filename=filename, contents=contents})
+	else
+		luci.template.render("QS/QS_downloader_main", {})
+	end
 end
 
 function start(x)
@@ -93,7 +124,11 @@ function error(errorNo)
 	errorLoc = uci:get('errorman', errorNo, 'errorLoc')
 	errorDesc = uci:get('errorman', errorNo, 'errorDesc')
 	errorNo = uci:get('errorman', errorNo, 'errorNo')
-	luci.template.render("QS/QS_errorPage_main", {errorMsg=errorMsg, errorLoc=errorLoc, errorDesc=errorDesc, errorNo=errorNo})
+	if errorMsg and errorLoc and errorDesc and errorNo then
+		luci.template.render("QS/QS_errorPage_main", {errorMsg=errorMsg, errorLoc=errorLoc, errorDesc=errorDesc, errorNo=errorNo})
+	else
+		luci.template.render("QS/QS_errorPage_main", {})
+	end
 end
 
 function find_nearby()
